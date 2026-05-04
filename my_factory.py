@@ -51,7 +51,7 @@ def save_data(data):
 # ==========================================
 # 2. 介面與全域變數配置
 # ==========================================
-st.set_page_config(page_title="專業工廠規劃器 V9.0", layout="wide")
+st.set_page_config(page_title="專業工廠規劃器 V9.2", layout="wide")
 
 if "calc_done" not in st.session_state:
     st.session_state.calc_done = False
@@ -68,7 +68,7 @@ for r in data["recipes"]:
 
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.title("🏭 專業工廠規劃器 V9.0")
+    st.title("🏭 專業工廠規劃器 V9.2")
 with col_btn:
     st.write("") 
     if st.button("📖 點我看教學", use_container_width=True):
@@ -331,7 +331,6 @@ with tab_calc:
                             shortages.append({"mat": m, "req": fuel_req, "short": abs(val)})
                     
                     if val > 0.001:
-                        # ✨ 核心修正：已刪除「所需輸送帶」的欄位，表格恢復純淨。
                         sales.append({"材料": m, "最終淨產出/分": round(val, 2)})
                         if data["prices"].get(m, 0) == 0:
                             deadlocks.append(m)
@@ -356,7 +355,7 @@ with tab_calc:
 
                 st.write("---")
                 st.subheader("🕸️ 產線邏輯圖 (可自由拖曳)")
-                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。（⚠️ **圖表功能還在優化，僅供參考**）")
+                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。（⚠️ **圖表功能還在優化，您可以隨意拖曳節點來排版，不會回彈！**）")
                 
                 nodes = []; edges = []; created = set()
                 def get_or_add_node(node_id, label, color, shape="dot"):
@@ -417,13 +416,13 @@ with tab_calc:
                             edges.append(Edge(source=r_id, target=m_id, label=f"{flow_out:g}/分 ({belts_out}條帶)"))
 
                 if has_flow:
-                    # ✨ 核心修正：將 direction 改回 UD (Up-Down 直向排列)
+                    # ✨ 核心修正：移除 hierarchical 並且關閉 physics。
+                    # 這樣系統會利用預設演算法做一次合理的初始展開，之後就允許完全自由、不會反彈的拖曳！
                     config = Config(
                         width="100%", 
                         height=750, 
                         directed=True, 
-                        physics=False, 
-                        layout={"hierarchical": {"enabled": True, "direction": "UD", "sortMethod": "directed"}},
+                        physics=False,  
                         zoom=True, 
                         pan=True, 
                         nodeHighlightBehavior=True
