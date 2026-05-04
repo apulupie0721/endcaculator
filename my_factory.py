@@ -2,15 +2,9 @@ import streamlit as st
 import json
 import os
 import pandas as pd
-import math  # ✨ 新增數學模組用來計算無條件進位
+import math  
 from pulp import *
-
-# 🛠️ 防崩潰機制：確保有安裝 agraph
-try:
-    from streamlit_agraph import agraph, Node, Edge, Config
-except ImportError:
-    st.error("🚨 缺少核心繪圖套件！請先關閉程式，打開終端機 (cmd) 輸入：\n\n`pip install streamlit-agraph`\n\n安裝完成後再重新啟動！")
-    st.stop()
+from streamlit_agraph import agraph, Node, Edge, Config
 
 # ==========================================
 # 1. 資料存取與自動修復系統
@@ -57,10 +51,12 @@ def save_data(data):
 # ==========================================
 # 2. 介面與全域變數配置
 # ==========================================
-st.set_page_config(page_title="專業工廠規劃器 V8.2", layout="wide")
+st.set_page_config(page_title="專業工廠規劃器 V9.0", layout="wide")
 
 if "calc_done" not in st.session_state:
     st.session_state.calc_done = False
+if "show_help" not in st.session_state:
+    st.session_state.show_help = False
 
 data = load_data()
 
@@ -70,7 +66,29 @@ for r in data["recipes"]:
     used_mats.update(r.get("outputs", {}).keys())
     used_machines.add(r.get("machine", ""))
 
-st.title("🏭 專業工廠規劃器 V8.2 (防卡死與管線版)")
+col_title, col_btn = st.columns([5, 1])
+with col_title:
+    st.title("🏭 專業工廠規劃器 V9.0")
+with col_btn:
+    st.write("") 
+    if st.button("📖 點我看教學", use_container_width=True):
+        st.session_state.show_help = not st.session_state.show_help
+
+if st.session_state.show_help:
+    st.info("""
+    ### 👷 新手管理員報到！5 分鐘學會如何使用：
+    本系統會幫你精算出「最少機台、不卡線、最省電」的完美藍圖。
+    
+    1. **【🏗️ 設備與材料】**：先去這裡註冊你的機器和物資。還要記得設定 **上限(台)**，以及 **插槽數**（插槽數代表此設備可以同時跑幾個配方），設定完後按「💾 儲存設備設定」。
+    2. **【📜 配方管理】**：在這裡輸入你想做的物品配方和花費秒數。可以利用上方的 `🔍 依設備篩選` 快速尋找已有配方。
+    3. **【💰 產物價值】**：(非必填) 給有價值的貨物定價，方便計算工廠每分鐘的預計總利潤。
+    4. **【🚀 生產運算】**：
+       - 在左側輸入你想達成的 **「產量目標」** (例如：息壤裝備原件 0.5/分)。
+       - 勾選哪些資源是 **「無限資源」** (例如：清水、沉積酸)。
+       - 在下方輸入你需要 **「直接扣除的發電燃料」** (系統會幫你在結算時自動扣掉)。
+       - 按下 **【開始計算最佳方案】**！
+    5. **看報告**：往下滑查看精確的「機台數量表」，並參考「🕸️ 產線邏輯圖」來接你的 30 速輸送帶。（⚠️ **圖表功能還在優化，僅供參考**）
+    """)
 
 tab_setup, tab_recipe, tab_price, tab_calc = st.tabs(["🏗️ 設備與材料", "📜 配方管理", "💰 產物價值設定", "🚀 生產運算"])
 
@@ -87,7 +105,6 @@ with tab_setup:
                 data["machine_slots"][new_mac] = 1.0
                 save_data(data); st.rerun()
         
-        st.caption("💡 提示：若為『集成製造站』，請將插槽數設為 4。普通設備維持 1。")
         for mac in sorted(data["machines"]):
             cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 0.5])
             cc1.write(f"⚙️ **{mac}**")
@@ -114,7 +131,7 @@ with tab_setup:
                 if cc2.button("🗑️", key=f"del_mat_{mat}"): data["materials"].remove(mat); save_data(data); st.rerun()
             else: cc2.markdown("<span style='color:gray;'>⚠️ 使用中</span>", unsafe_allow_html=True)
 
-# === TAB 2, 3 維持 ===
+# === TAB 2: 配方管理 ===
 with tab_recipe:
     with st.container(border=True):
         sel_mac = st.selectbox("選擇設備", options=data["machines"])
@@ -130,18 +147,43 @@ with tab_recipe:
             r_name = f"{sel_mac if sel_mac else '未指派設備'}: " + "+".join(out_dict.keys())
             data["recipes"].append({"name": r_name, "machine": sel_mac if sel_mac else "未指派設備", "inputs": in_dict, "outputs": out_dict, "time": duration, "target": 0.0})
             save_data(data); st.rerun()
+            
     st.header("現有配方清單")
+    filter_mac = st.selectbox("🔍 依設備篩選配方", options=["顯示全部"] + sorted(data["machines"]), key="filter_mac")
+    
     for i, r in enumerate(data["recipes"]):
+        if filter_mac != "顯示全部" and r.get("machine", "未指派設備") != filter_mac:
+            continue 
+                
         with st.expander(f"📜 {r['name']} ({r['time']}s)"):
             c1, c2 = st.columns(2)
             c1.write("**📥 消耗:**"); [c1.write(f"- {m}: {q}") for m, q in r.get("inputs", {}).items()]
             c2.write("**📤 產出:**"); [c2.write(f"- {m}: {q}") for m, q in r.get("outputs", {}).items()]
             if st.button("🗑️ 刪除", key=f"dr_{i}"): data["recipes"].pop(i); save_data(data); st.rerun()
 
+# === TAB 3: 產物價值設定 ===
 with tab_price:
+    st.header("產物價值設定")
+    
+    c_search, c_reset = st.columns([4, 1])
+    search_price = c_search.text_input("🔍 搜尋材料名稱...", key="s_price")
+    
+    c_reset.write("")
+    c_reset.write("")
+    if c_reset.button("🔄 全部歸零", use_container_width=True):
+        for k in data["prices"]: 
+            data["prices"][k] = 0.0
+        save_data(data)
+        st.rerun()
+    
     for m in data["materials"]:
+        if search_price and search_price.lower() not in m.lower():
+            continue 
         data["prices"][m] = st.number_input(f"{m} 單價", min_value=0.0, value=float(data["prices"].get(m, 0)), step=1.0, format="%g", key=f"p_{m}")
-    if st.button("💾 儲存價格設定", type="primary"): save_data(data); st.success("已儲存")
+        
+    if st.button("💾 儲存價格設定", type="primary"): 
+        save_data(data)
+        st.success("✅ 價格已儲存")
 
 # === TAB 4: 核心運算區 ===
 with tab_calc:
@@ -160,10 +202,14 @@ with tab_calc:
                 st.session_state.calc_done = False
                 for k in data["supply"]: data["supply"][k] = 0.0
                 save_data(data); st.rerun()
+            
+            search_sup = st.text_input("🔍 搜尋材料...", key="s_sup")
                 
             input_only = set(k for r in data["recipes"] for k in r.get("inputs", {}))
             for m in sorted(list(input_only)):
                 if m not in inf_mats:
+                    if search_sup and search_sup.lower() not in m.lower():
+                        continue
                     data["supply"][m] = st.number_input(f"{m} 供應量", min_value=0.0, value=float(data["supply"].get(m, 0.0)), step=1.0, format="%g", key=f"sup_{m}")
         
         with st.expander("🎯 展開：強制產量目標設定", expanded=False):
@@ -171,8 +217,12 @@ with tab_calc:
                 st.session_state.calc_done = False
                 for r in data["recipes"]: r["target"] = 0.0
                 save_data(data); st.rerun()
+            
+            search_tar = st.text_input("🔍 搜尋配方名稱...", key="s_tar")
                 
             for i, r in enumerate(data["recipes"]):
+                if search_tar and search_tar.lower() not in r['name'].lower():
+                    continue
                 data["recipes"][i]["target"] = st.number_input(f"{r['name']} 需求", min_value=0.0, value=float(r.get("target", 0.0)), step=1.0, format="%g", key=f"t_{i}")
 
         with st.expander("⚡ 展開：直接扣除發電燃料", expanded=False):
@@ -268,10 +318,9 @@ with tab_calc:
                 fuel_dict = data.get("fuel_settings", {})
                 sales = []
                 shortages = []
-                deadlocks = [] # ✨ 記錄死鎖風險物資
+                deadlocks = [] 
                 final_profit = value(revenue)
 
-                # 做帳扣除與死鎖偵測
                 for m in data["materials"]:
                     val = value(sell_vars[m])
                     if m in fuel_dict:
@@ -282,19 +331,15 @@ with tab_calc:
                             shortages.append({"mat": m, "req": fuel_req, "short": abs(val)})
                     
                     if val > 0.001:
-                        # ✨ 特色功能 2：計算末端需要的輸送帶數量
-                        req_belts = math.ceil(val / 30.0)
-                        sales.append({"材料": m, "最終淨產出/分": round(val, 2), "所需輸送帶(30/分)": f"{req_belts} 條"})
-                        
-                        # ✨ 特色功能 3：偵測是否無處安放且單價為 0
+                        # ✨ 核心修正：已刪除「所需輸送帶」的欄位，表格恢復純淨。
+                        sales.append({"材料": m, "最終淨產出/分": round(val, 2)})
                         if data["prices"].get(m, 0) == 0:
                             deadlocks.append(m)
                     elif val < -0.001:
-                        sales.append({"材料": m, "最終淨產出/分": round(val, 2), "所需輸送帶(30/分)": "-"})
+                        sales.append({"材料": m, "最終淨產出/分": round(val, 2)})
                         
                 c1.table(pd.DataFrame(sales))
                 
-                # ✨ 跳出死鎖警告
                 if deadlocks:
                     st.warning(f"💀 【產線卡死風險】副產物 **{', '.join(deadlocks)}** 大量溢出，且無經濟價值 (單價為0)！請記得在遊戲末端接上『碎石機』或大型儲存槽將其消耗，否則產線不久後將會卡死停擺。")
                 
@@ -309,12 +354,9 @@ with tab_calc:
                         
                 st.metric("預計總利潤 (/分)", f"${final_profit:,.2f}")
 
-                # ==========================================
-                # 🕸️ 產線邏輯拖曳圖 (加上輸送帶數量計算)
-                # ==========================================
                 st.write("---")
                 st.subheader("🕸️ 產線邏輯圖 (可自由拖曳)")
-                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。")
+                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。（⚠️ **圖表功能還在優化，僅供參考**）")
                 
                 nodes = []; edges = []; created = set()
                 def get_or_add_node(node_id, label, color, shape="dot"):
@@ -335,23 +377,57 @@ with tab_calc:
                         r_label = f"⚙️ {r['name']}\n(分 {vS} 槽, 負載 {load_pct}%)"
                         get_or_add_node(r_id, r_label, "#FFD700", "box")
                         
-                        # ✨ 在圖表管線上標註「需幾條帶子」
+                        mac_slots = int(max(1.0, float(data.get("machine_slots", {}).get(r["machine"], 1.0))))
+                        recipe_machines = math.ceil(vS / mac_slots)
+                        
                         for mat, qty in r.get("inputs", {}).items():
                             m_id = f"M_{mat}"
-                            get_or_add_node(m_id, f"📦 {mat}", "#87CEEB", "ellipse")
+                            
+                            is_island = True
+                            for recipe_check in data["recipes"]:
+                                if mat in recipe_check.get("outputs", {}):
+                                    is_island = False
+                                    break
+                            
+                            m_label = f"📦 {mat}"
+                            if is_island:
+                                m_label += " (⚠️ 孤島材料)" 
+                            
+                            get_or_add_node(m_id, m_label, "#87CEEB", "ellipse")
                             flow_in = qty * vR * (60.0 / r["time"])
-                            belts_in = math.ceil(flow_in / 30.0)
+                            belts_in = max(math.ceil(flow_in / 30.0), recipe_machines)
                             edges.append(Edge(source=m_id, target=r_id, label=f"{flow_in:g}/分 ({belts_in}條帶)"))
                             
                         for mat, qty in r.get("outputs", {}).items():
                             m_id = f"M_{mat}"
-                            get_or_add_node(m_id, f"📦 {mat}", "#90EE90", "ellipse")
+                            
+                            is_island = True
+                            for recipe_check in data["recipes"]:
+                                if mat in recipe_check.get("outputs", {}):
+                                    is_island = False
+                                    break
+                                    
+                            m_label = f"📦 {mat}"
+                            if is_island:
+                                m_label += " (⚠️ 孤島材料)" 
+                                
+                            get_or_add_node(m_id, m_label, "#90EE90", "ellipse")
                             flow_out = qty * vR * (60.0 / r["time"])
-                            belts_out = math.ceil(flow_out / 30.0)
+                            belts_out = max(math.ceil(flow_out / 30.0), recipe_machines)
                             edges.append(Edge(source=r_id, target=m_id, label=f"{flow_out:g}/分 ({belts_out}條帶)"))
 
                 if has_flow:
-                    config = Config(width="100%", height=750, directed=True, physics=False, hierarchical=True, zoom=True, pan=True, nodeHighlightBehavior=True)
+                    # ✨ 核心修正：將 direction 改回 UD (Up-Down 直向排列)
+                    config = Config(
+                        width="100%", 
+                        height=750, 
+                        directed=True, 
+                        physics=False, 
+                        layout={"hierarchical": {"enabled": True, "direction": "UD", "sortMethod": "directed"}},
+                        zoom=True, 
+                        pan=True, 
+                        nodeHighlightBehavior=True
+                    )
                     agraph(nodes=nodes, edges=edges, config=config)
                 else:
                     st.warning("目前沒有產生任何物流。")
