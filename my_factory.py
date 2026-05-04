@@ -7,11 +7,11 @@ from pulp import *
 from streamlit_agraph import agraph, Node, Edge, Config
 
 # ==========================================
-# 1. 資料存取與自動修復系統
+# 1. 初始資料讀取 (唯讀藍圖，不寫入)
 # ==========================================
 DB_FILE = "factory_v5_4.json"
 
-def load_data():
+def load_base_data():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
             try: d = json.load(f)
@@ -40,25 +40,23 @@ def load_data():
             
             d["prices"] = {k: v for k, v in d.get("prices", {}).items() if k in d["materials"]}
 
-            save_data(d)
             return d
     return {"materials": [], "machines": [], "recipes": [], "supply": {}, "infinite_mats": [], "prices": {}, "machine_limits": {}, "machine_slots": {}, "fuel_settings": {}}
-
-def save_data(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
 
 # ==========================================
 # 2. 介面與全域變數配置
 # ==========================================
-st.set_page_config(page_title="專業工廠規劃器 V9.2", layout="wide")
+st.set_page_config(page_title="蘋果派終末地計算機(更新至武陵1.2版本)", layout="wide")
 
+# 初始化使用者的獨立暫存空間
+if "app_data" not in st.session_state:
+    st.session_state.app_data = load_base_data()
 if "calc_done" not in st.session_state:
     st.session_state.calc_done = False
 if "show_help" not in st.session_state:
     st.session_state.show_help = False
 
-data = load_data()
+data = st.session_state.app_data
 
 used_mats = set(); used_machines = set()
 for r in data["recipes"]:
@@ -66,9 +64,40 @@ for r in data["recipes"]:
     used_mats.update(r.get("outputs", {}).keys())
     used_machines.add(r.get("machine", ""))
 
+# ==========================================
+# ✨ 側邊欄：個人存檔與讀檔系統
+# ==========================================
+with st.sidebar:
+    st.title("💾 存檔與讀檔")
+    st.info("💡 為了互不干擾，本網頁採用獨立記憶體。如果你想保留心血，請務必在離開前下載存檔！")
+    
+    st.download_button(
+        label="📥 下載個人存檔",
+        data=json.dumps(data, indent=4, ensure_ascii=False),
+        file_name="Endfield_Save_Data.json",
+        mime="application/json",
+        use_container_width=True,
+        type="primary"
+    )
+    
+    st.write("---")
+    uploaded_file = st.file_uploader("📤 匯入個人存檔", type=["json"])
+    if uploaded_file is not None:
+        try:
+            new_data = json.load(uploaded_file)
+            st.session_state.app_data = new_data
+            st.success("✅ 讀檔成功！設定已覆蓋。")
+            if st.button("🔄 點擊刷新畫面", use_container_width=True):
+                st.rerun()
+        except:
+            st.error("❌ 檔案格式錯誤")
+
+# ==========================================
+# 主畫面開始
+# ==========================================
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.title("🏭 專業工廠規劃器 V9.2")
+    st.title("🍏 蘋果派終末地計算機 (更新至武陵1.2版本)")
 with col_btn:
     st.write("") 
     if st.button("📖 點我看教學", use_container_width=True):
@@ -79,7 +108,7 @@ if st.session_state.show_help:
     ### 👷 新手管理員報到！5 分鐘學會如何使用：
     本系統會幫你精算出「最少機台、不卡線、最省電」的完美藍圖。
     
-    1. **【🏗️ 設備與材料】**：先去這裡註冊你的機器和物資。還要記得設定 **上限(台)**，以及 **插槽數**（插槽數代表此設備可以同時跑幾個配方），設定完後按「💾 儲存設備設定」。
+    1. **【🏗️ 設備與材料】**：先去這裡註冊你的機器和物資。還要記得設定 **上限(台)**，以及 **插槽數**（插槽數代表此設備可以同時跑幾個配方）。
     2. **【📜 配方管理】**：在這裡輸入你想做的物品配方和花費秒數。可以利用上方的 `🔍 依設備篩選` 快速尋找已有配方。
     3. **【💰 產物價值】**：(非必填) 給有價值的貨物定價，方便計算工廠每分鐘的預計總利潤。
     4. **【🚀 生產運算】**：
@@ -87,7 +116,7 @@ if st.session_state.show_help:
        - 勾選哪些資源是 **「無限資源」** (例如：清水、沉積酸)。
        - 在下方輸入你需要 **「直接扣除的發電燃料」** (系統會幫你在結算時自動扣掉)。
        - 按下 **【開始計算最佳方案】**！
-    5. **看報告**：往下滑查看精確的「機台數量表」，並參考「🕸️ 產線邏輯圖」來接你的 30 速輸送帶。（⚠️ **圖表功能還在優化，僅供參考**）
+    5. **看報告**：往下滑查看精確的「機台數量表」，並參考「🕸️ 產線邏輯圖」來接你的 30 速輸送帶。
     """)
 
 tab_setup, tab_recipe, tab_price, tab_calc = st.tabs(["🏗️ 設備與材料", "📜 配方管理", "💰 產物價值設定", "🚀 生產運算"])
@@ -103,7 +132,7 @@ with tab_setup:
                 data["machines"].append(new_mac)
                 data["machine_limits"][new_mac] = 0.0
                 data["machine_slots"][new_mac] = 1.0
-                save_data(data); st.rerun()
+                st.rerun()
         
         for mac in sorted(data["machines"]):
             cc1, cc2, cc3, cc4 = st.columns([2, 1, 1, 0.5])
@@ -111,24 +140,23 @@ with tab_setup:
             data["machine_limits"][mac] = cc2.number_input("上限(台)", min_value=0.0, value=float(data["machine_limits"].get(mac, 0)), step=1.0, format="%g", key=f"lim_{mac}")
             data["machine_slots"][mac] = cc3.number_input("插槽數", min_value=1.0, value=float(data.get("machine_slots", {}).get(mac, 1.0)), step=1.0, format="%g", key=f"s_{mac}")
             if mac not in used_machines:
-                if cc4.button("🗑️", key=f"del_mac_{mac}"): data["machines"].remove(mac); save_data(data); st.rerun()
+                if cc4.button("🗑️", key=f"del_mac_{mac}"): data["machines"].remove(mac); st.rerun()
             else: cc4.markdown("⚠️", unsafe_allow_html=True)
             
-        if st.button("💾 儲存設備設定", type="primary", use_container_width=True):
-            save_data(data)
-            st.success("✅ 設備上限與插槽設定已永久儲存！")
+        if st.button("💾 確認並套用設備設定", type="primary", use_container_width=True):
+            st.success("✅ 設定已更新至暫存區！")
             
     with c2:
         st.header("材料管理")
         with st.container(border=True):
             new_mat = st.text_input("註冊新材料", key="new_mat")
             if st.button("確認註冊材料", use_container_width=True) and new_mat and new_mat not in data["materials"]:
-                data["materials"].append(new_mat); save_data(data); st.rerun()
+                data["materials"].append(new_mat); st.rerun()
         for mat in sorted(data["materials"]):
             cc1, cc2 = st.columns([3, 1])
             cc1.write(f"📦 **{mat}**")
             if mat not in used_mats:
-                if cc2.button("🗑️", key=f"del_mat_{mat}"): data["materials"].remove(mat); save_data(data); st.rerun()
+                if cc2.button("🗑️", key=f"del_mat_{mat}"): data["materials"].remove(mat); st.rerun()
             else: cc2.markdown("<span style='color:gray;'>⚠️ 使用中</span>", unsafe_allow_html=True)
 
 # === TAB 2: 配方管理 ===
@@ -146,7 +174,7 @@ with tab_recipe:
         if st.button("➕ 儲存配方", use_container_width=True, type="primary"):
             r_name = f"{sel_mac if sel_mac else '未指派設備'}: " + "+".join(out_dict.keys())
             data["recipes"].append({"name": r_name, "machine": sel_mac if sel_mac else "未指派設備", "inputs": in_dict, "outputs": out_dict, "time": duration, "target": 0.0})
-            save_data(data); st.rerun()
+            st.rerun()
             
     st.header("現有配方清單")
     filter_mac = st.selectbox("🔍 依設備篩選配方", options=["顯示全部"] + sorted(data["machines"]), key="filter_mac")
@@ -159,7 +187,7 @@ with tab_recipe:
             c1, c2 = st.columns(2)
             c1.write("**📥 消耗:**"); [c1.write(f"- {m}: {q}") for m, q in r.get("inputs", {}).items()]
             c2.write("**📤 產出:**"); [c2.write(f"- {m}: {q}") for m, q in r.get("outputs", {}).items()]
-            if st.button("🗑️ 刪除", key=f"dr_{i}"): data["recipes"].pop(i); save_data(data); st.rerun()
+            if st.button("🗑️ 刪除", key=f"dr_{i}"): data["recipes"].pop(i); st.rerun()
 
 # === TAB 3: 產物價值設定 ===
 with tab_price:
@@ -173,7 +201,6 @@ with tab_price:
     if c_reset.button("🔄 全部歸零", use_container_width=True):
         for k in data["prices"]: 
             data["prices"][k] = 0.0
-        save_data(data)
         st.rerun()
     
     for m in data["materials"]:
@@ -181,16 +208,17 @@ with tab_price:
             continue 
         data["prices"][m] = st.number_input(f"{m} 單價", min_value=0.0, value=float(data["prices"].get(m, 0)), step=1.0, format="%g", key=f"p_{m}")
         
-    if st.button("💾 儲存價格設定", type="primary"): 
-        save_data(data)
-        st.success("✅ 價格已儲存")
+    if st.button("💾 確認單價設定", type="primary"): 
+        st.success("✅ 價格已更新至暫存區")
 
 # === TAB 4: 核心運算區 ===
 with tab_calc:
     col_s, col_r = st.columns([1, 2])
     
     with col_s:
-        st.button("🔴 儲存所有設定", on_click=lambda: save_data(data), use_container_width=True, type="primary")
+        if st.button("🔄 還原至伺服器初始預設", use_container_width=True):
+            st.session_state.app_data = load_base_data()
+            st.rerun()
         st.write("---")
         st.subheader("設定參數")
         
@@ -201,7 +229,7 @@ with tab_calc:
             if st.button("🔄 全部歸零 (有限資源)", key="r_sup", use_container_width=True): 
                 st.session_state.calc_done = False
                 for k in data["supply"]: data["supply"][k] = 0.0
-                save_data(data); st.rerun()
+                st.rerun()
             
             search_sup = st.text_input("🔍 搜尋材料...", key="s_sup")
                 
@@ -216,7 +244,7 @@ with tab_calc:
             if st.button("🔄 全部歸零 (產量目標)", key="r_tar", use_container_width=True):
                 st.session_state.calc_done = False
                 for r in data["recipes"]: r["target"] = 0.0
-                save_data(data); st.rerun()
+                st.rerun()
             
             search_tar = st.text_input("🔍 搜尋配方名稱...", key="s_tar")
                 
@@ -230,7 +258,7 @@ with tab_calc:
             if st.button("🔄 全部歸零 (燃料扣除)", key="r_fuel", use_container_width=True):
                 data["fuel_settings"] = {}
                 st.session_state.calc_done = False
-                save_data(data); st.rerun()
+                st.rerun()
             
             existing_fuels = [f for f in data.get("fuel_settings", {}).keys() if f in data["materials"]]
             sel_fuels = st.multiselect("選擇要扣除的物資 (可多選)", options=data["materials"], default=existing_fuels)
@@ -355,7 +383,7 @@ with tab_calc:
 
                 st.write("---")
                 st.subheader("🕸️ 產線邏輯圖 (可自由拖曳)")
-                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。（⚠️ **圖表功能還在優化，您可以隨意拖曳節點來排版，不會回彈！**）")
+                st.caption("💡 管線上的數字代表流量與所需的 **30速輸送帶數量**，幫助您規劃接口。（⚠️ **您可以隨意拖曳節點來排版，不會回彈！**）")
                 
                 nodes = []; edges = []; created = set()
                 def get_or_add_node(node_id, label, color, shape="dot"):
@@ -416,8 +444,6 @@ with tab_calc:
                             edges.append(Edge(source=r_id, target=m_id, label=f"{flow_out:g}/分 ({belts_out}條帶)"))
 
                 if has_flow:
-                    # ✨ 核心修正：移除 hierarchical 並且關閉 physics。
-                    # 這樣系統會利用預設演算法做一次合理的初始展開，之後就允許完全自由、不會反彈的拖曳！
                     config = Config(
                         width="100%", 
                         height=750, 
